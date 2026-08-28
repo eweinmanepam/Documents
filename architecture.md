@@ -1,4 +1,3 @@
-````markdown
 # StableImpact — Architecture (Roadmap-aligned)
 
 Source document: `stableimpact-roadmap-google-cloud-enterprise-en.md`
@@ -108,7 +107,6 @@ flowchart TB
   SM --> SIGNER
   SM --> INTEG
 ```
-````
 
 ---
 
