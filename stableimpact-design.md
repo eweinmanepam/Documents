@@ -36,85 +36,92 @@ explain, but they never approve, sign, or execute anything themselves.
 ```mermaid
 flowchart LR
   subgraph Public[Public internet and user channels]
-    GE[Gemini Enterprise UI]
-    PORTAL[External portal]
-    REVIEW[Reviewer console]
-    DASH[Audit and impact dashboard]
-    DONORW[Donor wallet]
+    H1_GE[Gemini Enterprise UI]
+    H1_PORTAL[External portal]
+    H1_REVIEW[Reviewer console]
+    H1_DASH[Audit and impact dashboard]
+    H1_DONORW[Donor wallet]
   end
 
-  subgraph Platform[Google-managed Agent Platform]
-    RUNTIME[Agent Runtime]
-    ORCH[ADK orchestrator]
-    AGENTS[Specialist agents]
-    SEARCH[Platform Search]
-    GOVERN[Identity Gateway]
-    ARMOR[Model Armor]
+  subgraph Platform[Google managed Agent Platform]
+    H1_RUNTIME[Agent runtime]
+    H1_ORCH[ADK orchestrator]
+    H1_AGENTS[Specialist agents]
+    H1_SEARCH[Platform search]
+    H1_ARMOR[Model armor]
   end
 
-  subgraph AppSvc[Org GCP app services - Cloud Run]
-    MCP[StableImpact MCP]
-    API[Domain backend]
-    APPROVAL[Approval service]
-    LISTENER[EVM event listener]
-    SIGNER[Signer adapter]
+  H1_GE -->|TLS| H1_RUNTIME
+  H1_RUNTIME -->|internal| H1_ORCH
+  H1_ORCH -->|internal| H1_AGENTS
+  H1_ORCH -->|internal| H1_SEARCH
+  H1_ARMOR -->|policy| H1_ORCH
+
+  H1_PORTAL -->|HTTPS TLS| H1_REVIEW
+  H1_DASH -->|HTTPS TLS| H1_REVIEW
+  H1_DONORW -->|browser| H1_PORTAL
+```
+
+```mermaid
+flowchart LR
+  subgraph AppSvc[Org GCP app services]
+    H2_MCP[StableImpact MCP]
+    H2_API[Domain backend]
+    H2_APPROVAL[Approval service]
+    H2_LISTENER[EVM event listener]
+    H2_SIGNER[Signer adapter]
   end
 
   subgraph DataZone[Org GCP data and evidence]
-    SQL[Cloud SQL]
-    GCS[Cloud Storage]
-    DLP[DLP]
-    DOC[Document AI]
-    BQ[BigQuery]
+    H2_SQL[Cloud SQL]
+    H2_GCS[Cloud Storage]
+    H2_DLP[Sensitive data protection]
+    H2_DOC[Document AI]
+    H2_BQ[BigQuery]
   end
 
   subgraph EventZone[Org GCP event plane]
-    PS[Pub Sub]
-    WF[Workflows]
+    H2_PS[Pub Sub]
+    H2_WF[Workflows]
   end
 
+  H2_MCP -->|HTTPS mTLS| H2_API
+  H2_API -->|TLS| H2_SQL
+  H2_API -->|HTTPS TLS| H2_GCS
+  H2_GCS -->|HTTPS TLS| H2_DLP
+  H2_DLP -->|HTTPS TLS| H2_DOC
+  H2_DOC -->|TLS| H2_SQL
+
+  H2_API -->|Pub Sub TLS| H2_PS
+  H2_APPROVAL -->|TLS| H2_SQL
+  H2_APPROVAL -->|Pub Sub TLS| H2_PS
+
+  H2_LISTENER -->|Pub Sub TLS| H2_PS
+  H2_PS -->|Eventarc| H2_WF
+  H2_WF -->|HTTPS mTLS| H2_SIGNER
+
+  H2_SQL -->|BigQuery TLS| H2_BQ
+  H2_PS -->|BigQuery TLS| H2_BQ
+```
+
+```mermaid
+flowchart LR
   subgraph Chain[Base Sepolia testnet]
-    RPC[Authorized RPC]
-    CONTRACT[Escrow contract]
-    WALLET[Execution wallet]
+    H3_RPC[Authorized RPC]
+    H3_CONTRACT[Escrow contract]
+    H3_WALLET[Execution wallet]
   end
 
-  GE --> RUNTIME
-  RUNTIME --> ORCH
-  ORCH --> AGENTS
-  ORCH --> SEARCH
-  ARMOR --> ORCH
-  GOVERN --> MCP
+  subgraph Offchain[Off chain execution]
+    H3_WF[Workflows]
+    H3_LISTENER[EVM listener]
+  end
 
-  PORTAL --> API
-  PORTAL --> GCS
-  REVIEW --> APPROVAL
-  DONORW --> RPC
-
-  AGENTS --> MCP
-  MCP --> API
-  API --> SQL
-  API --> GCS
-  GCS --> DLP
-  DLP --> DOC
-  DOC --> SQL
-
-  API --> PS
-  APPROVAL --> SQL
-  APPROVAL --> PS
-
-  PS --> WF
-  WF --> SIGNER
-  SIGNER --> WALLET
-  WALLET --> RPC
-  RPC --> CONTRACT
-  CONTRACT --> LISTENER
-  LISTENER --> RPC
-  LISTENER --> PS
-
-  SQL --> BQ
-  PS --> BQ
-  BQ --> DASH
+  H3_WF -->|HTTPS mTLS| H3_WALLET
+  H3_WALLET -->|JSON RPC HTTPS| H3_RPC
+  H3_RPC -->|EVM call| H3_CONTRACT
+  H3_CONTRACT -->|event| H3_LISTENER
+  H3_LISTENER -->|JSON RPC HTTPS| H3_RPC
 ```
 
 ### Portal
@@ -122,32 +129,32 @@ flowchart LR
 ```mermaid
 flowchart LR
   subgraph Public[Public internet]
-    ORG[Beneficiary org user]
-    DONOR[Donor]
-    PORTAL[External portal]
-    DONORW[Donor wallet]
+    P_ORG[Beneficiary org user]
+    P_DONOR[Donor]
+    P_PORTAL[External portal]
+    P_DONORW[Donor wallet]
   end
 
   subgraph AppSvc[Application services]
-    API[Domain backend]
+    P_API[Domain backend]
   end
 
   subgraph DataZone[Data and evidence]
-    GCS[Cloud Storage quarantine]
+    P_GCS[Cloud Storage quarantine]
   end
 
   subgraph Chain[Base Sepolia testnet]
-    RPC[Authorized RPC]
-    CONTRACT[Escrow contract]
+    P_RPC[Authorized RPC]
+    P_CONTRACT[Escrow contract]
   end
 
-  ORG --> PORTAL
-  DONOR --> PORTAL
-  PORTAL --> API
-  PORTAL --> GCS
-  PORTAL --> DONORW
-  DONORW --> RPC
-  RPC --> CONTRACT
+  P_ORG -->|HTTPS TLS| P_PORTAL
+  P_DONOR -->|HTTPS TLS| P_PORTAL
+  P_PORTAL -->|HTTPS TLS OIDC| P_API
+  P_PORTAL -->|Signed URL HTTPS TLS| P_GCS
+  P_PORTAL -->|wallet connect| P_DONORW
+  P_DONORW -->|JSON RPC HTTPS| P_RPC
+  P_RPC -->|EVM tx| P_CONTRACT
 ```
 
 The portal never touches a private key — the donor's own wallet signs and submits the
@@ -160,31 +167,31 @@ backend once the listener has ingested the on-chain event.
 ```mermaid
 flowchart LR
   subgraph Public[Public internet authenticated]
-    REVIEWER[Business reviewer]
-    CONSOLE[Reviewer console]
+    R_REVIEWER[Business reviewer]
+    R_CONSOLE[Reviewer console]
   end
 
   subgraph AppSvc[Application services]
-    API[Domain backend]
-    APPROVAL[Approval service]
+    R_API[Domain backend]
+    R_APPROVAL[Approval service]
   end
 
   subgraph DataZone[Data and evidence]
-    SQL[Cloud SQL]
+    R_SQL[Cloud SQL]
   end
 
   subgraph EventZone[Event plane]
-    PS[Pub Sub]
-    WF[Workflows]
+    R_PS[Pub Sub]
+    R_WF[Workflows]
   end
 
-  REVIEWER --> CONSOLE
-  CONSOLE --> API
-  API --> SQL
-  CONSOLE --> APPROVAL
-  APPROVAL --> SQL
-  APPROVAL --> PS
-  PS --> WF
+  R_REVIEWER -->|SSO OIDC| R_CONSOLE
+  R_CONSOLE -->|HTTPS TLS OIDC| R_API
+  R_API -->|TLS| R_SQL
+  R_CONSOLE -->|HTTPS TLS OIDC| R_APPROVAL
+  R_APPROVAL -->|TLS| R_SQL
+  R_APPROVAL -->|Pub Sub TLS| R_PS
+  R_PS -->|Eventarc| R_WF
 ```
 
 The console only records the business decision — it never signs a blockchain
@@ -204,22 +211,22 @@ specialists.
 ```mermaid
 flowchart LR
   subgraph Public[Public]
-    GE[Gemini Enterprise UI]
+    OA_GE[Gemini Enterprise UI]
   end
 
   subgraph Platform[Agent Platform]
-    RUNTIME[Agent Runtime]
-    ORCH[Orchestrator agent]
-    SEARCH[Platform Search]
-    SPECIALISTS[Specialist agents]
-    ARMOR[Model Armor]
+    OA_RUNTIME[Agent runtime]
+    OA_ORCH[Orchestrator agent]
+    OA_SEARCH[Platform search]
+    OA_SPECIALISTS[Specialist agents]
+    OA_ARMOR[Model armor]
   end
 
-  GE --> RUNTIME
-  RUNTIME --> ORCH
-  ARMOR --> ORCH
-  ORCH --> SEARCH
-  ORCH --> SPECIALISTS
+  OA_GE -->|TLS| OA_RUNTIME
+  OA_RUNTIME -->|internal| OA_ORCH
+  OA_ARMOR -->|policy| OA_ORCH
+  OA_ORCH -->|internal| OA_SEARCH
+  OA_ORCH -->|internal| OA_SPECIALISTS
 ```
 
 **Program & campaign agent**
@@ -227,23 +234,23 @@ flowchart LR
 ```mermaid
 flowchart LR
   subgraph Platform[Agent Platform]
-    AGENT[Program and campaign agent]
-    SEARCH[Platform Search]
+    PC_AGENT[Program and campaign agent]
+    PC_SEARCH[Platform search]
   end
 
   subgraph AppSvc[Application services]
-    MCP[StableImpact MCP]
-    API[Domain backend]
+    PC_MCP[StableImpact MCP]
+    PC_API[Domain backend]
   end
 
   subgraph DataZone[Data zone]
-    SQL[Cloud SQL]
+    PC_SQL[Cloud SQL]
   end
 
-  AGENT --> SEARCH
-  AGENT --> MCP
-  MCP --> API
-  API --> SQL
+  PC_AGENT -->|internal| PC_SEARCH
+  PC_AGENT -->|MCP HTTPS mTLS| PC_MCP
+  PC_MCP -->|HTTPS mTLS| PC_API
+  PC_API -->|TLS| PC_SQL
 ```
 
 **Compliance & due-diligence agent**
@@ -251,23 +258,23 @@ flowchart LR
 ```mermaid
 flowchart LR
   subgraph Platform[Agent Platform]
-    AGENT[Compliance and due diligence agent]
+    C_AGENT[Compliance and due diligence agent]
   end
 
   subgraph AppSvc[Application services]
-    MCP[StableImpact MCP]
-    API[Domain backend]
-    INTEG[Integration connector]
+    C_MCP[StableImpact MCP]
+    C_API[Domain backend]
+    C_INTEG[Integration connector]
   end
 
   subgraph DataZone[Data zone]
-    SQL[Cloud SQL]
+    C_SQL[Cloud SQL]
   end
 
-  AGENT --> MCP
-  MCP --> API
-  API --> INTEG
-  API --> SQL
+  C_AGENT -->|MCP HTTPS mTLS| C_MCP
+  C_MCP -->|HTTPS mTLS| C_API
+  C_API -->|HTTPS TLS| C_INTEG
+  C_API -->|TLS| C_SQL
 ```
 
 **Matching agent** _(lowest-confidence tool inference — see Open Questions)_
@@ -275,21 +282,21 @@ flowchart LR
 ```mermaid
 flowchart LR
   subgraph Platform[Agent Platform]
-    AGENT[Matching agent]
+    M_AGENT[Matching agent]
   end
 
   subgraph AppSvc[Application services]
-    MCP[StableImpact MCP]
-    API[Domain backend]
+    M_MCP[StableImpact MCP]
+    M_API[Domain backend]
   end
 
   subgraph DataZone[Data zone]
-    SQL[Cloud SQL]
+    M_SQL[Cloud SQL]
   end
 
-  AGENT --> MCP
-  MCP --> API
-  API --> SQL
+  M_AGENT -->|MCP HTTPS mTLS| M_MCP
+  M_MCP -->|HTTPS mTLS| M_API
+  M_API -->|TLS| M_SQL
 ```
 
 **Evidence & impact agent**
@@ -297,28 +304,28 @@ flowchart LR
 ```mermaid
 flowchart LR
   subgraph Platform[Agent Platform]
-    AGENT[Evidence and impact agent]
+    E_AGENT[Evidence and impact agent]
   end
 
   subgraph AppSvc[Application services]
-    MCP[StableImpact MCP]
-    API[Domain backend]
+    E_MCP[StableImpact MCP]
+    E_API[Domain backend]
   end
 
   subgraph DataZone[Data and evidence]
-    SQL[Cloud SQL]
-    GCS[Cloud Storage sanitized]
+    E_SQL[Cloud SQL]
+    E_GCS[Cloud Storage sanitized]
   end
 
   subgraph Chain[Chain read only]
-    RPC[Authorized RPC]
+    E_RPC[Authorized RPC]
   end
 
-  AGENT --> MCP
-  MCP --> API
-  API --> SQL
-  API --> GCS
-  MCP --> RPC
+  E_AGENT -->|MCP HTTPS mTLS| E_MCP
+  E_MCP -->|HTTPS mTLS| E_API
+  E_API -->|TLS| E_SQL
+  E_API -->|HTTPS TLS| E_GCS
+  E_MCP -->|JSON RPC HTTPS| E_RPC
 ```
 
 **Treasury agent** — has no access to `disbursement_execute_approved`; execution is
@@ -327,26 +334,26 @@ invoked only from Workflows after a valid human decision, per the MCP rules.
 ```mermaid
 flowchart LR
   subgraph Platform[Agent Platform]
-    AGENT[Treasury agent]
+    T_AGENT[Treasury agent]
   end
 
   subgraph AppSvc[Application services]
-    MCP[StableImpact MCP]
-    API[Domain backend]
+    T_MCP[StableImpact MCP]
+    T_API[Domain backend]
   end
 
   subgraph DataZone[Data zone]
-    SQL[Cloud SQL]
+    T_SQL[Cloud SQL]
   end
 
   subgraph Chain[Chain read only]
-    RPC[Authorized RPC]
+    T_RPC[Authorized RPC]
   end
 
-  AGENT --> MCP
-  MCP --> API
-  API --> SQL
-  MCP --> RPC
+  T_AGENT -->|MCP HTTPS mTLS| T_MCP
+  T_MCP -->|HTTPS mTLS| T_API
+  T_API -->|TLS| T_SQL
+  T_MCP -->|JSON RPC HTTPS| T_RPC
 ```
 
 **Audit agent**
@@ -354,28 +361,28 @@ flowchart LR
 ```mermaid
 flowchart LR
   subgraph Platform[Agent Platform]
-    AGENT[Audit agent]
+    A_AGENT[Audit agent]
   end
 
   subgraph AppSvc[Application services]
-    MCP[StableImpact MCP]
-    API[Domain backend]
+    A_MCP[StableImpact MCP]
+    A_API[Domain backend]
   end
 
   subgraph DataZone[Data and evidence]
-    SQL[Cloud SQL]
-    BQ[BigQuery]
+    A_SQL[Cloud SQL]
+    A_BQ[BigQuery]
   end
 
   subgraph Chain[Chain read only]
-    RPC[Authorized RPC]
+    A_RPC[Authorized RPC]
   end
 
-  AGENT --> MCP
-  MCP --> API
-  API --> SQL
-  API --> BQ
-  MCP --> RPC
+  A_AGENT -->|MCP HTTPS mTLS| A_MCP
+  A_MCP -->|HTTPS mTLS| A_API
+  A_API -->|TLS| A_SQL
+  A_API -->|BigQuery TLS| A_BQ
+  A_MCP -->|JSON RPC HTTPS| A_RPC
 ```
 
 **Operations agent**
@@ -383,19 +390,19 @@ flowchart LR
 ```mermaid
 flowchart LR
   subgraph Platform[Agent Platform]
-    AGENT[Operations agent]
+    O_AGENT[Operations agent]
   end
 
   subgraph AppSvc[Application services]
-    MCP[StableImpact MCP]
+    O_MCP[StableImpact MCP]
   end
 
   subgraph ObsZone[Observability]
-    LOG[Cloud Logging]
+    O_LOG[Cloud Logging]
   end
 
-  AGENT --> MCP
-  MCP --> LOG
+  O_AGENT -->|MCP HTTPS mTLS| O_MCP
+  O_MCP -->|API TLS| O_LOG
 ```
 
 ### Orchestrator delegation workflow
