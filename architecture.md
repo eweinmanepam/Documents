@@ -578,3 +578,301 @@ sequenceDiagram
 - ≥90% correct tool choice in primary cases
 - ≥90% grounded responses where evaluable
 - All critical dataset attacks rejected (prompt injection, malicious docs, secret requests, financial-return promises)
+
+## 6) Per-Agent Requirements + Orchestrator Workflow (Roadmap-aligned)
+
+This section breaks requirements down per agent and defines the orchestrator’s runtime workflow (how it routes intent, uses tools, and enforces boundaries).
+
+### 6.1 Global agent requirements (apply to ALL agents)
+
+**GA-1 Domain-tool-only operations**
+
+- Agents shall perform business operations only through **StableImpact MCP** domain tools.
+- Agents shall not call generic vendor APIs directly (enterprise systems, blockchain RPC) except through allowlisted, domain-wrapped mechanisms.
+
+**GA-2 No financial authority**
+
+- Agents shall not approve campaigns or disbursements.
+- Agents shall not sign, execute, transfer, deploy, or modify contracts.
+- Agents shall not access private keys/seed phrases or any secret material.
+
+**GA-3 Safety + policy compliance**
+
+- Agents shall refuse requests to bypass approval, request secrets, promise returns, or initiate unauthorized financial actions.
+- Agents shall label testnet assets and mocked providers as such.
+
+**GA-4 Grounding and citations**
+
+- Agents shall cite sources for recommendations: policy context, extracted fields, on-chain receipts/logs (read-only), and system records.
+- Agents shall explicitly state uncertainty and request more information when evidence is missing/ambiguous.
+
+**GA-5 Traceability**
+
+- Each agent run shall include structured correlation identifiers where available: `trace_id`, `session_id`, `agent_run_id`, `user_id`, `organization_id`, `campaign_id`, `milestone_id`, etc.
+- Agents shall not store sensitive data in memory; “memory” may only store non-sensitive, consented preferences.
+
+---
+
+### 6.2 Orchestrator Agent — Requirements
+
+**Purpose:** Entry point; routes intent; stops at human decision boundaries; produces unified, grounded responses.
+
+**ORCH-1 Intent classification and routing**
+
+- Orchestrator shall classify user intent into: campaign creation, policy Q&A, evidence upload status, milestone evaluation, treasury proposal, audit/reporting, operations/health, or general help.
+- Orchestrator shall delegate specialized work to the appropriate specialist agent.
+
+**ORCH-2 Missing information handling**
+
+- Orchestrator shall request missing required fields before tool calls (e.g., campaign_id, milestone_id).
+- Orchestrator shall never “guess” authoritative identifiers or amounts.
+
+**ORCH-3 Human decision boundary enforcement**
+
+- Orchestrator shall stop before any approval/signing/execution steps and instruct the user to use the reviewer console where required.
+- Orchestrator shall not attempt to “approve” by writing state changes that simulate an approval.
+
+**ORCH-4 Tooling policy enforcement**
+
+- Orchestrator shall enforce minimum tool allocation per agent (e.g., Evidence agent cannot execute, Treasury agent cannot execute).
+- Orchestrator shall fail closed if asked to use unrecognized tools or unknown schema fields.
+
+**ORCH-5 Response composition**
+
+- Orchestrator shall merge sub-agent outputs into a single response that contains:
+  - recommendation (if applicable)
+  - citations/sources
+  - uncertainty notes
+  - next action (and who must do it: nonprofit, reviewer, operator)
+
+**Primary tool usage:** Orchestrator generally does not need unique tools; it coordinates specialist tool usage via MCP and uses search/sessions.
+
+---
+
+### 6.3 Program & Campaign Agent — Requirements
+
+**Purpose:** Convert conversations/forms into structured campaigns and milestones; retrieve policy context; persist drafts and submissions.
+
+**PC-1 Campaign drafting**
+
+- Agent shall create and update a campaign draft using MCP.
+- Agent shall ensure the campaign includes: objective, budget, milestones (amount + criteria), impact indicators.
+
+**PC-2 Policy contextualization**
+
+- Agent shall retrieve policy context for campaign creation and cite it in explanations.
+
+**PC-3 Validation readiness**
+
+- Agent shall format campaign data to satisfy backend deterministic validation (e.g., integer token base units, required fields).
+
+**PC-4 Safe language**
+
+- Agent shall avoid investment language and financial-return promises.
+
+**Primary MCP tools**
+
+- `campaign_create_draft`
+- `campaign_update_draft`
+- `campaign_get`
+- `campaign_submit`
+- `campaign_get_policy_context`
+- `campaign_list_eligible` (if also supporting eligibility listing)
+
+---
+
+### 6.4 Compliance & Due-Diligence Agent — Requirements
+
+**Purpose:** Assess eligibility and risk using sanitized documents, extraction outputs, and integration results; produce explainable outcomes.
+
+**CDD-1 Sanitized inputs only**
+
+- Agent shall only consume sanitized document content and extraction outputs.
+
+**CDD-2 Versioned risk policy**
+
+- Agent shall evaluate a versioned risk matrix/policy and cite it.
+
+**CDD-3 Uncertainty and escalation**
+
+- Agent shall classify results as pass/fail/ambiguous and explain what additional evidence is needed for ambiguous cases.
+
+**CDD-4 Provider integration boundaries**
+
+- Agent shall rely on domain tools and integration results (not raw provider APIs).
+- Agent shall clearly label mocked provider results.
+
+**Primary MCP tools**
+
+- `organization_get`
+- `organization_get_verification`
+- `compliance_run_checks`
+- `risk_get_policy`
+- `risk_save_assessment`
+
+---
+
+### 6.5 Matching Agent — Requirements
+
+**Purpose:** Match eligible campaigns with funding programs and explain mission alignment, constraints, and risks.
+
+**MATCH-1 Eligibility + alignment**
+
+- Agent shall list eligible programs/campaigns and explain alignment to the selected program goals.
+
+**MATCH-2 Non-investment language**
+
+- Agent shall avoid return promises, yield language, “investment” framing, or performance guarantees.
+
+**MATCH-3 Explainability**
+
+- Agent shall cite policies/criteria that drive matching.
+
+**Primary MCP tools**
+
+- `campaign_list_eligible`
+- `campaign_get_policy_context`
+
+---
+
+### 6.6 Evidence & Impact Agent — Requirements
+
+**Purpose:** Compare milestone evidence with acceptance criteria, budgets, invoices, and verified transactions; output a sourced recommendation.
+
+**EVI-1 Evidence comparison**
+
+- Agent shall compare extracted document fields (Document AI outputs) against:
+  - milestone acceptance criteria
+  - approved budget lines
+  - prior contributions/releases (read-only chain facts)
+- Agent shall identify inconsistencies and missing items.
+
+**EVI-2 Recommendation output**
+
+- Agent shall produce one of: approve / reject / request-more-info.
+- Agent shall include citations and an uncertainty statement when needed.
+
+**EVI-3 No state transition authority**
+
+- Agent shall not approve; it may only save an agent review record.
+
+**Primary MCP tools**
+
+- `evidence_create_upload` (if evidence upload initiation is agent-driven; otherwise portal-driven)
+- `evidence_get_processing_status`
+- `evidence_get_extracted_fields`
+- `evidence_get_sanitized_content`
+- `milestone_save_agent_review`
+- Read-only chain tools:
+  - `chain_get_network`
+  - `chain_get_campaign_state`
+  - `chain_get_token_balance`
+  - `chain_get_transaction`
+  - `chain_list_contract_events`
+
+---
+
+### 6.7 Treasury Agent — Requirements
+
+**Purpose:** Prepare disbursement proposals and request simulation; explain amount/recipient/conditions; never approve/sign/execute.
+
+**TRE-1 Proposal preparation**
+
+- Agent shall create a disbursement proposal bound to campaign_id + milestone_id + amount + recipient + token + contract + chain_id.
+
+**TRE-2 Simulation request**
+
+- Agent shall request simulation via domain tools and interpret results for the reviewer.
+
+**TRE-3 Refusal of execution**
+
+- Agent shall refuse any attempt to execute, sign, or bypass approvals.
+
+**Primary MCP tools**
+
+- `contribution_prepare`
+- `disbursement_create_proposal`
+- `disbursement_simulate`
+- (Explicitly NOT allowed for this agent): `disbursement_execute_approved`
+
+---
+
+### 6.8 Audit Agent — Requirements
+
+**Purpose:** Reconcile Cloud SQL, chain events, Pub/Sub/Workflow events, and BigQuery; produce traceable audit explanations.
+
+**AUD-1 Reconciliation**
+
+- Agent shall compare operational ledger vs on-chain events and detect discrepancies.
+
+**AUD-2 Audit explanations**
+
+- Agent shall generate explanations answering:
+  - who approved
+  - what evidence was used
+  - what amount was released
+  - where the transaction is verifiable (explorer link)
+  - whether reconciliation passed
+
+**AUD-3 Dataset generation**
+
+- Agent shall generate or refresh audit datasets/views (where implemented).
+
+**Primary MCP tools**
+
+- `audit_get_campaign_ledger`
+- `audit_compare_sources`
+- `audit_get_trace`
+- `audit_generate_dataset`
+- `audit_save_report`
+- Read-only chain tools as needed
+
+---
+
+### 6.9 Operations Agent — Requirements
+
+**Purpose:** Summarize system health and failures; recommend actions without changing infrastructure.
+
+**OPS-1 Health reporting**
+
+- Agent shall retrieve service health and failure queues and summarize them in business-meaningful terms.
+
+**OPS-2 Incident reporting**
+
+- Agent shall prepare an incident report that is redacted (no secrets) and includes correlation IDs.
+
+**OPS-3 No mutation**
+
+- Agent shall not modify infrastructure, IAM, deployments, or secrets.
+
+**Primary MCP tools**
+
+- `ops_get_service_health`
+- `ops_get_failed_events`
+- `ops_get_agent_trace`
+- `ops_prepare_incident_report`
+
+---
+
+## 6.10 Orchestrator Workflow (runtime sequence)
+
+### 6.10.1 High-level state machine (what the orchestrator runs)
+
+```mermaid
+stateDiagram-v2
+  [*] --> Intake
+  Intake --> ClassifyIntent
+  ClassifyIntent --> GatherContext
+  GatherContext --> Delegate
+
+  Delegate --> Compose
+  Delegate --> RequestMissing : missing required fields
+  RequestMissing --> Intake
+
+  Compose --> HumanBoundaryCheck
+  HumanBoundaryCheck --> Refuse : approval/signing/execution requested
+  HumanBoundaryCheck --> Respond : safe and complete
+
+  Refuse --> [*]
+  Respond --> [*]
+```
