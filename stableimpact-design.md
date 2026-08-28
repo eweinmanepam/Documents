@@ -79,7 +79,9 @@ flowchart LR
     WALLET[Execution wallet]
   end
 
-  GE --> RUNTIME --> ORCH --> AGENTS
+  GE --> RUNTIME
+  RUNTIME --> ORCH
+  ORCH --> AGENTS
   ORCH --> SEARCH
   ARMOR --> ORCH
   GOVERN --> MCP
@@ -89,16 +91,23 @@ flowchart LR
   REVIEW --> APPROVAL
   DONORW --> RPC
 
-  AGENTS --> MCP --> API
+  AGENTS --> MCP
+  MCP --> API
   API --> SQL
   API --> GCS
-  GCS --> DLP --> DOC --> SQL
+  GCS --> DLP
+  DLP --> DOC
+  DOC --> SQL
 
   API --> PS
   APPROVAL --> SQL
   APPROVAL --> PS
 
-  PS --> WF --> SIGNER --> WALLET --> RPC --> CONTRACT
+  PS --> WF
+  WF --> SIGNER
+  SIGNER --> WALLET
+  WALLET --> RPC
+  RPC --> CONTRACT
   CONTRACT --> LISTENER
   LISTENER --> RPC
   LISTENER --> PS
@@ -137,7 +146,8 @@ flowchart LR
   PORTAL --> API
   PORTAL --> GCS
   PORTAL --> DONORW
-  DONORW --> RPC --> CONTRACT
+  DONORW --> RPC
+  RPC --> CONTRACT
 ```
 
 The portal never touches a private key — the donor's own wallet signs and submits the
@@ -169,9 +179,12 @@ flowchart LR
   end
 
   REVIEWER --> CONSOLE
-  CONSOLE --> API --> SQL
-  CONSOLE --> APPROVAL --> SQL
-  APPROVAL --> PS --> WF
+  CONSOLE --> API
+  API --> SQL
+  CONSOLE --> APPROVAL
+  APPROVAL --> SQL
+  APPROVAL --> PS
+  PS --> WF
 ```
 
 The console only records the business decision — it never signs a blockchain
@@ -202,7 +215,8 @@ flowchart LR
     ARMOR[Model Armor]
   end
 
-  GE --> RUNTIME --> ORCH
+  GE --> RUNTIME
+  RUNTIME --> ORCH
   ARMOR --> ORCH
   ORCH --> SEARCH
   ORCH --> SPECIALISTS
@@ -227,7 +241,9 @@ flowchart LR
   end
 
   AGENT --> SEARCH
-  AGENT --> MCP --> API --> SQL
+  AGENT --> MCP
+  MCP --> API
+  API --> SQL
 ```
 
 **Compliance & due-diligence agent**
@@ -248,7 +264,8 @@ flowchart LR
     SQL[Cloud SQL]
   end
 
-  AGENT --> MCP --> API
+  AGENT --> MCP
+  MCP --> API
   API --> INTEG
   API --> SQL
 ```
@@ -270,7 +287,9 @@ flowchart LR
     SQL[Cloud SQL]
   end
 
-  AGENT --> MCP --> API --> SQL
+  AGENT --> MCP
+  MCP --> API
+  API --> SQL
 ```
 
 **Evidence & impact agent**
@@ -295,7 +314,8 @@ flowchart LR
     RPC[Authorized RPC]
   end
 
-  AGENT --> MCP --> API
+  AGENT --> MCP
+  MCP --> API
   API --> SQL
   API --> GCS
   MCP --> RPC
@@ -323,7 +343,9 @@ flowchart LR
     RPC[Authorized RPC]
   end
 
-  AGENT --> MCP --> API --> SQL
+  AGENT --> MCP
+  MCP --> API
+  API --> SQL
   MCP --> RPC
 ```
 
@@ -349,7 +371,8 @@ flowchart LR
     RPC[Authorized RPC]
   end
 
-  AGENT --> MCP --> API
+  AGENT --> MCP
+  MCP --> API
   API --> SQL
   API --> BQ
   MCP --> RPC
@@ -371,7 +394,8 @@ flowchart LR
     LOG[Cloud Logging]
   end
 
-  AGENT --> MCP --> LOG
+  AGENT --> MCP
+  MCP --> LOG
 ```
 
 ### Orchestrator delegation workflow
