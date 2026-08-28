@@ -4,115 +4,236 @@ Source document: `stableimpact-roadmap-google-cloud-enterprise-en.md`
 
 This document contains:
 
-- Target architecture overview
+- High-level architecture overview (3 surfaces + shared backbone)
+- Three architecture diagrams:
+  1. Agents (Gemini Enterprise + ADK)
+  2. External Portal (Nonprofit + Donor)
+  3. Reviewer Console (Authenticated human decisioning)
 - Requirements split by surface: **External Portal (PR)**, **Agents (AR)**, **Reviewer Console (RR)**
-- Clear boundary: **Reviewer Console vs External Portal**
+- Explicit boundary: **Reviewer Console vs External Portal**
 - Dataflow diagrams (sequence diagrams)
 - Agent specification (roles, tool access policy, safety constraints, evaluation criteria)
 
 ---
 
-## 1) Target Architecture Diagram
+## 1) High-level Architecture Overview
 
-```mermaid
-flowchart TB
-  %% =========================
-  %% StableImpact Target Architecture (Roadmap-aligned)
-  %% =========================
+StableImpact is a three-surface system tied together by a private MCP and deterministic backend:
 
-  subgraph Channels["User channels"]
-    GE["Gemini Enterprise<br/>(Operator/Reviewer/Analyst entry)"]
-    PORTAL["External portal<br/>(Nonprofit + Donor)"]
-    REVIEW["Reviewer console<br/>(Authenticated decision)"]
-    DASH["Audit & impact dashboard<br/>(Looker/BigQuery views)"]
-  end
+1. **Agents surface (Gemini Enterprise + ADK on Agent Runtime)**
+   - Converts unstructured inputs into structured drafts, runs policy/risk/evidence reasoning, and produces **recommendations**.
+   - Agents can only act through **StableImpact MCP** (domain tools).
+   - Agents **never approve or sign**.
 
-  subgraph AgentPlatform["Gemini Enterprise Agent Platform"]
-    RUNTIME["Agent Runtime<br/>(Managed execution)"]
-    ORCH["ADK Orchestrator Agent"]
-    SUBS["Specialist Agents<br/>(campaign/compliance/matching/evidence/treasury/audit/ops)"]
-    SEARCH["Agent Platform Search<br/>(policies, guidance)"]
-    SESS["Sessions<br/>(conversational continuity)"]
-    GOV["Agent Identity / Registry / Gateway<br/>(when available)"]
-    ARMOR["Model Armor<br/>(prompt/URL/PII inspection)"]
-  end
+2. **External Portal surface (Nonprofit + Donor)**
+   - Handles document uploads (signed URLs → quarantine → sanitize → extract).
+   - Handles donor testnet contributions and shows **transaction proof**.
+   - No approvals.
 
-  subgraph CloudRun["Cloud Run services"]
-    MCP["StableImpact MCP<br/>(authoritative domain tools)"]
-    API["Domain Backend API<br/>(state machine, ledger, authz)"]
-    APPROVAL["Approval Service<br/>(record human decisions)"]
-    LISTENER["EVM Event Listener<br/>(chain->Pub/Sub)"]
-    SIGNER["Controlled Signer Adapter<br/>(prepares exact tx; no keys exposed to agents)"]
-    INTEG["Enterprise Integrations Adapter<br/>(or Application Integration)"]
-  end
+3. **Reviewer Console surface (Enterprise reviewer)**
+   - The only place where **authenticated human approvals** are recorded.
+   - Shows the “decision packet”: risk + evidence highlights + exact release parameters + simulation status.
+   - Triggers deterministic orchestration (Pub/Sub/Eventarc → Workflows) that enforces single-use approvals and exact-parameter validation.
 
-  subgraph Data["Data & evidence"]
-    SQL["Cloud SQL (PostgreSQL)<br/>(source of truth)"]
-    GCSQ["Cloud Storage Quarantine<br/>(restricted)"]
-    GCSS["Cloud Storage Sanitized<br/>(agent-safe)"]
-    DLP["Sensitive Data Protection<br/>(redact before agent use)"]
-    DOC["Document AI<br/>(extraction)"]
-    BQ["BigQuery<br/>(audit, reconciliation, metrics, traces)"]
-    SM["Secret Manager<br/>(RPC/OAuth/provider secrets refs)"]
-  end
+Shared backbone:
 
-  subgraph Events["Event plane"]
-    PS["Pub/Sub + Eventarc<br/>(normalized events)"]
-    WF["Workflows<br/>(deterministic post-approval path)"]
-  end
-
-  subgraph Chain["Blockchain (Base Sepolia)"]
-    RPC["Dedicated RPC (preferred)<br/>Public RPC fallback (demo only)"]
-    CONTRACT["Escrow Smart Contract<br/>(test-USDC custody + milestone release)"]
-    WALLET["Human execution wallet<br/>(separate from reviewer identity)"]
-    DONOR["Donor wallet<br/>(test-USDC contribution)"]
-  end
-
-  %% ---- Flows ----
-  GE --> RUNTIME --> ORCH --> SUBS
-  ORCH --> SEARCH
-  ORCH <--> SESS
-  ARMOR --> ORCH
-  GOV --> MCP
-
-  SUBS --> MCP
-  MCP --> API
-  MCP --> INTEG
-
-  PORTAL --> API
-  REVIEW --> APPROVAL
-  APPROVAL --> API
-
-  API --> SQL
-  API --> GCSQ
-  GCSQ --> DLP --> GCSS
-  GCSS --> DOC --> SQL
-
-  API --> PS
-  LISTENER --> PS
-  PS --> WF
-  APPROVAL --> WF
-  WF --> SIGNER --> WALLET --> RPC --> CONTRACT
-  DONOR --> RPC --> CONTRACT
-  CONTRACT --> LISTENER
-  RPC --> LISTENER
-
-  SQL --> BQ
-  PS --> BQ
-  BQ --> DASH
-
-  SM --> API
-  SM --> MCP
-  SM --> LISTENER
-  SM --> SIGNER
-  SM --> INTEG
-```
+- **Cloud Run**: MCP, backend API, approval service, EVM listener, controlled signer adapter, integrations adapter
+- **Cloud SQL**: authoritative state + append-only ledger
+- **Cloud Storage + DLP + Document AI**: evidence pipeline (quarantine → sanitized → extracted fields)
+- **Pub/Sub + Workflows**: deterministic execution path after approval
+- **Base Sepolia contract + authorized RPC**: verifiable test-USDC contributions/releases
+- **BigQuery**: reconciliation/audit/impact views
 
 ---
 
-## 2) Requirements (split by surface)
+## 2) Architecture Diagrams
 
-### 2.0 Shared global requirements (applies to all surfaces)
+### 2.1 Agents Architecture (Gemini Enterprise + ADK)
+
+```mermaid
+flowchart TB
+  subgraph GE["Gemini Enterprise Agent Surface"]
+    USER["Operator / Analyst / (Viewer)"]
+    GEM["Gemini Enterprise UI"]
+  end
+
+  subgraph AP["Agent Platform"]
+    RUNTIME["Agent Runtime"]
+    ORCH["ADK Orchestrator"]
+    SPEC["Specialist Agents<br/>Campaign | Compliance | Matching | Evidence | Treasury | Audit | Ops"]
+    SEARCH["Agent Platform Search<br/>(Policies/Guidance)"]
+    SESS["Sessions"]
+    ARMOR["Model Armor / Safety Controls"]
+  end
+
+  subgraph CR["Cloud Run (Authoritative Services)"]
+    MCP["StableImpact MCP<br/>(ONLY authoritative tool interface)"]
+    API["Domain Backend API<br/>(state machine, authz, ledger)"]
+    INTEG["Enterprise Integrations Adapter<br/>(or Application Integration)"]
+  end
+
+  subgraph DATA["Data Plane"]
+    SQL["Cloud SQL (Postgres)<br/>(source of truth)"]
+    BQ["BigQuery<br/>(audit/reconciliation/metrics)"]
+  end
+
+  subgraph CHAIN["Read-only Chain Access (Allowed to Agents)"]
+    RPC["Authorized RPC / Read-only provider"]
+    CONTRACT["Base Sepolia Contract<br/>(events/state)"]
+  end
+
+  USER --> GEM --> RUNTIME --> ORCH
+  ORCH --> SPEC
+  ORCH <--> SESS
+  ARMOR --> ORCH
+  ORCH --> SEARCH
+
+  SPEC --> MCP
+  MCP --> API
+  MCP --> INTEG
+  API --> SQL
+  SQL --> BQ
+
+  %% Read-only blockchain queries (no execution)
+  SPEC --> MCP
+  MCP --> RPC --> CONTRACT
+```
+
+**Key boundaries**
+
+- Agents talk to the business system **only via MCP**.
+- Any chain access from agents is **read-only** (state/tx/receipts/logs) and must be allowlisted.
+- Agents must never approve, sign, execute, deploy, or access private keys.
+
+---
+
+### 2.2 External Portal Architecture (Nonprofit + Donor)
+
+```mermaid
+flowchart TB
+  subgraph USERS["External Users"]
+    NP["Nonprofit user"]
+    DONOR["Donor (wallet user)"]
+  end
+
+  subgraph PORTAL["External Portal (Web)"]
+    UI["Portal UI"]
+  end
+
+  subgraph CR["Cloud Run Services"]
+    API["Domain Backend API"]
+    LISTENER["EVM Event Listener<br/>(ingest on-chain events)"]
+  end
+
+  subgraph DOCS["Evidence Pipeline"]
+    GCSQ["Cloud Storage Quarantine<br/>(restricted)"]
+    DLP["Sensitive Data Protection<br/>(redaction)"]
+    GCSS["Cloud Storage Sanitized"]
+    DOC["Document AI<br/>(extraction)"]
+  end
+
+  subgraph EVENTS["Event Plane"]
+    PS["Pub/Sub"]
+  end
+
+  subgraph DATA["Data"]
+    SQL["Cloud SQL (source of truth)"]
+    BQ["BigQuery (audit/reconciliation)"]
+  end
+
+  subgraph CHAIN["Blockchain (Base Sepolia)"]
+    WALLET["Donor wallet"]
+    RPC["Authorized RPC"]
+    CONTRACT["Escrow Smart Contract<br/>(test-USDC)"]
+  end
+
+  %% Nonprofit uploads
+  NP --> UI
+  UI --> API --> GCSQ
+  GCSQ --> DLP --> GCSS --> DOC --> API
+  API --> SQL
+  API --> PS
+  PS --> BQ
+  SQL --> BQ
+
+  %% Donor contributions
+  DONOR --> UI
+  UI --> WALLET --> RPC --> CONTRACT
+  CONTRACT --> LISTENER --> PS
+  LISTENER --> SQL
+```
+
+**Key boundaries**
+
+- Portal supports uploads, status, and donor contributions.
+- Portal must **not** be an approval or signing surface.
+
+---
+
+### 2.3 Reviewer Console Architecture (Authenticated approval)
+
+```mermaid
+flowchart TB
+  subgraph REVIEWERS["Enterprise Reviewer"]
+    RUSER["Reviewer (human approver)"]
+  end
+
+  subgraph CONSOLE["Reviewer Console (Web)"]
+    RUI["Console UI<br/>(decision packet + approval action)"]
+  end
+
+  subgraph CR["Cloud Run Services"]
+    APPROVAL["Approval Service<br/>(records decisions)"]
+    API["Domain Backend API<br/>(validates state/invariants)"]
+    SIGNER["Controlled Signer Adapter<br/>(prepare exact tx; no keys in system)"]
+    LISTENER["EVM Event Listener"]
+  end
+
+  subgraph WFPLANE["Deterministic Orchestration"]
+    PS["Pub/Sub / Eventarc"]
+    WF["Workflows<br/>(validates approval single-use + parameters, runs simulation, triggers execution path)"]
+    SIM["Simulation<br/>(backend or allowlisted provider)"]
+  end
+
+  subgraph DATA["Data"]
+    SQL["Cloud SQL (source of truth + ledger)"]
+    BQ["BigQuery (audit/reconciliation)"]
+  end
+
+  subgraph CHAIN["Blockchain (Base Sepolia)"]
+    EXW["Human execution wallet<br/>(separate from reviewer identity)"]
+    RPC["Authorized RPC"]
+    CONTRACT["Escrow Smart Contract"]
+  end
+
+  %% Reviewer approval path
+  RUSER --> RUI --> APPROVAL --> SQL
+  APPROVAL --> PS --> WF
+  WF --> API --> SQL
+
+  %% Deterministic execution path
+  WF --> SIM
+  WF --> SIGNER --> EXW --> RPC --> CONTRACT
+  CONTRACT --> LISTENER --> PS
+  LISTENER --> SQL
+  PS --> BQ
+  SQL --> BQ
+
+  %% Console shows status + proofs
+  SQL --> RUI
+  BQ --> RUI
+```
+
+**Key boundaries**
+
+- Console is the **only** surface that can create approvals.
+- Execution still requires deterministic workflow validation and a separate human execution wallet signature.
+
+---
+
+## 3) Requirements (split by surface)
+
+### 3.0 Shared global requirements (applies to all surfaces)
 
 **SGR-1 Demo boundary (mandatory)**
 
@@ -140,9 +261,7 @@ flowchart TB
 
 ---
 
-### 2.1 External Portal requirements (PR)
-
-**Portal purpose:** Nonprofit + donor interface for submissions, uploads, and contributions; shows status and proofs. It is **not** an approval surface.
+### 3.1 External Portal requirements (PR)
 
 **PR-1 Authentication & role separation**
 
@@ -165,7 +284,7 @@ flowchart TB
 
 **PR-5 Donor contribution flow (testnet)**
 
-- Portal shall display **network, chain ID, token, contract address, and amount** with explicit “testnet-only” warnings.
+- Portal shall display network, chain ID, token, contract address, and amount with explicit “testnet-only” warnings.
 - Portal shall guide wallet contribution submission and show transaction hash + explorer link after contribution.
 
 **PR-6 Milestone evidence submission**
@@ -185,128 +304,106 @@ flowchart TB
 
 ---
 
-### 2.2 Agent requirements (AR)
-
-**Agent purpose:** Structure data, interpret policies and evidence, and generate grounded recommendations through **StableImpact MCP** domain tools, without performing approvals or signing.
+### 3.2 Agent requirements (AR)
 
 **AR-1 Orchestration and delegation**
 
-- System shall implement an orchestrator agent that routes intent, requests missing info, delegates tasks, and stops at human-decision boundaries.
+- Orchestrator routes intent, requests missing info, delegates tasks, and stops at human-decision boundaries.
 
 **AR-2 Grounded policy retrieval**
 
-- Agents shall retrieve policy and guidance from approved sources (Agent Platform Search or controlled corpus) and cite sources.
+- Agents retrieve policy and guidance from approved sources and cite sources.
 
 **AR-3 Draft campaign creation via MCP**
 
-- Agents shall create/update/submit campaign drafts using StableImpact MCP tools; backend validates and persists authoritative state.
+- Agents create/update/submit campaign drafts using StableImpact MCP tools; backend validates and persists authoritative state.
 
 **AR-4 Sanitized-only evidence consumption**
 
-- Agents shall consume only sanitized content and Document AI extraction outputs.
-- Agents shall not receive quarantined originals if policy forbids it.
+- Agents consume only sanitized content and Document AI extraction outputs; they do not access quarantined originals if policy forbids.
 
 **AR-5 Risk and due diligence recommendation**
 
-- Compliance agent shall evaluate a versioned policy/risk matrix and produce explainable results, including uncertainty and escalation on ambiguous inputs.
+- Compliance agent evaluates versioned risk policy and produces explainable results with uncertainty and escalation.
 
 **AR-6 Milestone evaluation recommendation**
 
-- Evidence agent shall compare acceptance criteria, budgets, invoices, and verified transactions (read-only chain tools) and output:
-  - approve/reject/request-info recommendation
-  - citations and uncertainty notes
-- Agent output must be recorded as non-authoritative evidence (not a state transition).
+- Evidence agent compares acceptance criteria, budgets, invoices, and verified transactions (read-only chain tools) and outputs a recommendation with citations.
 
-**AR-7 Treasury proposal + simulation request (no execution)**
+**AR-7 Treasury proposal + simulation request**
 
-- Treasury agent shall prepare disbursement proposals and request simulation via domain tools, but cannot execute disbursement.
+- Treasury agent prepares disbursement proposals and requests simulation; cannot execute disbursement.
 
 **AR-8 Audit narrative**
 
-- Audit agent shall reconcile Cloud SQL state with on-chain events and BigQuery views and generate an evidence-backed explanation (who/what/why/where to verify).
+- Audit agent reconciles Cloud SQL with on-chain events and BigQuery views and generates an evidence-backed explanation.
 
-**AR-9 Tooling constraints (critical)**
+**AR-9 Tooling constraints**
 
-- Agents shall use StableImpact MCP domain tools only.
-- External blockchain MCP (e.g., Alchemy MCP) shall be read-only/simulation-only and allowlisted.
+- Agents use StableImpact MCP domain tools only.
+- External blockchain MCP is read-only/simulation-only and allowlisted.
 
 **AR must NOT**
 
 - Approve campaigns/disbursements.
 - Sign transactions or access private keys/seed phrases.
 - Deploy/modify contracts.
-- Use generic blockchain write/sign tools (`sendTokens`, `writeContract`, `sendTransactions`, `signMessage`, etc.).
+- Use generic blockchain write/sign tools.
 - Treat model output as authoritative ledger or authoritative on-chain state.
 
 ---
 
-### 2.3 Reviewer Console requirements (RR)
-
-**Reviewer Console purpose:** The authenticated **human decision** surface. It must present complete decision context and record auditable approvals.
+### 3.3 Reviewer Console requirements (RR)
 
 **RR-1 Strong authentication**
 
-- Reviewer console shall require authenticated access and record reviewer identity with every decision.
+- Reviewer console requires authenticated access; records reviewer identity with each decision.
 
 **RR-2 Decision context display (campaign and milestone)**
-Before a reviewer approves a campaign or milestone release, the console shall display, at minimum:
+Before approval, console shows:
 
-- campaign and milestone identifiers and current state
-- evidence list and extracted highlights (sanitized)
-- risk assessment summary and cited policy context
-- amount (integer base units), recipient, token, contract address, chain ID/network
-- agent recommendation clearly labeled “non-binding”
-- simulation status/result (success/failure summary)
-- explicit single-use approval notice (“approval will be consumed; reuse will be rejected”)
+- campaign/milestone identifiers and state
+- evidence list + extracted highlights (sanitized)
+- risk assessment + cited policy context
+- amount (integer base units), recipient, token, contract, chain ID/network
+- agent recommendation labeled non-binding
+- simulation status/result
+- single-use approval notice
 
 **RR-3 Decision capture**
 
-- Console shall allow approve/reject/request-info (or approve/request-changes) with reason.
-- Decision shall create a single-use `approval_id` bound to exact parameters (campaign_id, milestone_id, amount, recipient, token, contract, chain_id).
+- Approve/reject/request-info with reason.
+- Creates a single-use `approval_id` bound to exact parameters.
 
 **RR-4 Post-approval traceability**
 
-- Console shall display deterministic workflow status and, after execution, the transaction hash + explorer link.
+- Shows workflow status and transaction hash + explorer link after execution.
 
 **RR-5 Mock/testnet labeling**
 
-- Console shall clearly label testnet assets and any mocked external provider outcomes and limitations.
+- Clearly labels testnet assets and mocked provider outcomes.
 
 **RR must NOT**
 
-- Contain or access private keys.
-- Allow post-approval parameter edits without invalidating/re-issuing approval.
-- Trigger “execution” directly without deterministic workflow validation.
+- Contain/access private keys.
+- Allow parameter edits after approval without invalidating/re-issuing approval.
+- Trigger execution without deterministic workflow validation.
 
 ---
 
-### 2.4 Reviewer Console vs External Portal (explicit differences)
+### 3.4 Reviewer Console vs External Portal (explicit differences)
 
-1. **Authority**
-   - **Portal:** submission + transparency; no approval power.
-   - **Reviewer Console:** exclusive surface for recording authenticated approvals that enable deterministic disbursement.
-
-2. **Audience**
-   - **Portal:** nonprofit applicants and donors.
-   - **Reviewer Console:** enterprise reviewer/operator accountable for decisions.
-
-3. **Minimum information shown**
-   - **Portal:** user-facing status, evidence upload UX, donor contribution UX, transaction proof.
-   - **Reviewer Console:** complete decision packet (risk + policy context + evidence highlights + exact release parameters + simulation + audit fields).
-
-4. **Security posture**
-   - **Portal:** may be internet-facing; must enforce strict input limits, CORS, and hardened endpoints.
-   - **Reviewer Console:** must be tightly access-controlled; reviewer identity becomes an audit artifact.
-
-5. **Financial controls**
-   - **Portal:** cannot approve or execute.
-   - **Reviewer Console:** records approval; execution still requires deterministic workflow + separate human execution wallet signature.
+1. **Authority:** Portal submits; Console approves (authenticated).
+2. **Audience:** Portal = nonprofit/donor; Console = enterprise reviewer.
+3. **Information:** Portal = status/tx proof; Console = full decision packet + audit fields.
+4. **Security posture:** Portal may be internet-facing; Console must be tightly access-controlled.
+5. **Financial controls:** Portal cannot approve/execute; Console records approval, but execution requires Workflows + separate execution wallet signature.
 
 ---
 
-## 3) Dataflow Diagrams
+## 4) Dataflow Diagrams
 
-### 3.1 Organization onboarding + document processing
+### 4.1 Organization onboarding + document processing
 
 ```mermaid
 sequenceDiagram
@@ -333,7 +430,7 @@ sequenceDiagram
   API->>PS: Publish organization.documents.processed
 ```
 
-### 3.2 Campaign creation + approval
+### 4.2 Campaign creation + approval
 
 ```mermaid
 sequenceDiagram
@@ -366,7 +463,7 @@ sequenceDiagram
   Approval->>PS: Emit campaign.approved (or rejected)
 ```
 
-### 3.3 Contribution + event ingestion
+### 4.3 Contribution + event ingestion
 
 ```mermaid
 sequenceDiagram
@@ -375,7 +472,7 @@ sequenceDiagram
   participant Portal as External Portal
   participant RPC as Authorized RPC
   participant Contract as Base Sepolia Contract
-  participant Listener as EVM Listener (Cloud Run)
+  participant Listener as EVM Event Listener (Cloud Run)
   participant PS as Pub/Sub
   participant SQL as Cloud SQL
   participant BQ as BigQuery
@@ -391,7 +488,7 @@ sequenceDiagram
   SQL->>BQ: Replicate operational records (batch/stream)
 ```
 
-### 3.4 Milestone evaluation + deterministic disbursement
+### 4.4 Milestone evaluation + deterministic disbursement
 
 ```mermaid
 sequenceDiagram
@@ -445,9 +542,9 @@ sequenceDiagram
 
 ---
 
-## 4) Agent Specification
+## 5) Agent Specification
 
-### 4.1 Agent roster and responsibilities
+### 5.1 Agent roster and responsibilities
 
 | Agent                            | Primary responsibilities                                                                                     | Must-not boundaries                           | Primary MCP tools                                                                                                       |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
@@ -460,20 +557,20 @@ sequenceDiagram
 | Audit Agent                      | Reconcile sources; detect discrepancies; generate audit dataset/report                                       | Must not mutate financial state               | `audit_get_campaign_ledger`, `audit_compare_sources`, `audit_generate_dataset`, `audit_save_report`                     |
 | Operations Agent                 | Summarize health, failures, traces; recommend actions                                                        | Must not modify infrastructure                | `ops_get_service_health`, `ops_get_failed_events`, `ops_get_agent_trace`, `ops_prepare_incident_report`                 |
 
-### 4.2 Tool access control policy (minimum tool allocation)
+### 5.2 Tool access control policy (minimum tool allocation)
 
 - Evidence & Impact Agent: **no** `disbursement_execute_approved`
 - Treasury Agent: **no** `disbursement_execute_approved`; simulation only
 - Orchestrator: may call write tools but should delegate; never request keys
 - Only the deterministic Workflow path may lead to “execute-approved” after approval validation.
 
-### 4.3 Shared safety constraints (prompts/callbacks)
+### 5.3 Shared safety constraints (prompts/callbacks)
 
 - Refuse requests to: approve, sign, transfer, deploy, bypass approval, reveal secrets.
 - Cite sources (policy, extracted fields, receipts) for all recommendations.
 - Label testnet/mocks; avoid language implying real funds or returns.
 
-### 4.4 Required evaluation criteria (thresholds)
+### 5.4 Required evaluation criteria (thresholds)
 
 - 0 payments without valid approval
 - 0 secrets exposure
