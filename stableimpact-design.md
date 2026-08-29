@@ -62,6 +62,14 @@ flowchart LR
   H1_DONORW -->|browser| H1_PORTAL
 ```
 
+This first slice covers the public-facing entry points and the Google-managed Agent
+Platform: Gemini Enterprise reaches Agent Runtime, which hosts the ADK orchestrator and
+its specialist agents, with Model Armor screening every prompt/response and Platform
+Search backing policy lookups. The portal, dashboard, and donor wallet are shown here
+only as they relate to the reviewer console at a high level — their detailed request
+flows are broken out in the dedicated Portal and Reviewer console diagrams later in
+this section.
+
 ```mermaid
 flowchart LR
   subgraph AppSvc[Org GCP app services]
@@ -104,6 +112,14 @@ flowchart LR
   H2_PS -->|BigQuery TLS| H2_BQ
 ```
 
+This slice covers the org's Cloud Run application services and how they connect to its
+data/evidence stores and event plane. MCP calls into the domain backend, which persists
+to Cloud SQL and Cloud Storage; uploaded content flows from Cloud Storage through
+Sensitive Data Protection and Document AI before landing back in Cloud SQL as structured
+data. The backend, approval service, and listener all publish to Pub/Sub, which triggers
+Workflows via Eventarc and hands off to the signer adapter; Cloud SQL and Pub/Sub both
+feed BigQuery for analytics and reconciliation.
+
 ```mermaid
 flowchart LR
   subgraph Chain[Base Sepolia testnet]
@@ -123,6 +139,12 @@ flowchart LR
   H3_CONTRACT -->|event| H3_LISTENER
   H3_LISTENER -->|JSON RPC HTTPS| H3_RPC
 ```
+
+This slice isolates the blockchain execution path: Workflows invokes the human execution
+wallet over an internal call, the wallet submits the signed transaction through the
+authorized RPC to the escrow contract, and the EVM listener picks up the resulting
+on-chain event by independently polling the same RPC — the listener never learns about a
+release except by observing the chain itself.
 
 ### Portal
 
@@ -229,6 +251,11 @@ flowchart LR
   OA_ORCH -->|internal| OA_SPECIALISTS
 ```
 
+This isolates the orchestrator's own connections: it receives the user's request via
+Agent Runtime, has its prompts and responses screened by Model Armor, and fans out to
+Platform Search for policy lookups and to the specialist agents it delegates to — it
+never calls the MCP server directly itself.
+
 **Program & campaign agent**
 
 ```mermaid
@@ -252,6 +279,10 @@ flowchart LR
   PC_MCP -->|HTTPS mTLS| PC_API
   PC_API -->|TLS| PC_SQL
 ```
+
+The campaign agent reads eligibility policy directly from Platform Search, but does all
+of its actual campaign-data work — creating, updating, and submitting drafts — through
+the MCP server, which forwards to the domain backend and ultimately Cloud SQL.
 
 **Compliance & due-diligence agent**
 
@@ -277,6 +308,11 @@ flowchart LR
   C_API -->|TLS| C_SQL
 ```
 
+MCP is the compliance agent's only door out: every call — reading organization data,
+running KYC/KYB and sanctions checks, saving a risk assessment — goes through MCP to the
+backend, which in turn talks to the (real or mocked) integration connector and persists
+the result to Cloud SQL.
+
 **Matching agent** _(lowest-confidence tool inference — see Open Questions)_
 
 ```mermaid
@@ -298,6 +334,11 @@ flowchart LR
   M_MCP -->|HTTPS mTLS| M_API
   M_API -->|TLS| M_SQL
 ```
+
+The matching agent's shape here is the simplest and least certain of the set — it reads
+eligible campaigns and program data through MCP and the backend, with no additional
+connections shown, since the source roadmap gives no tool-level detail for this agent
+beyond its prose description (see Open Questions).
 
 **Evidence & impact agent**
 
@@ -328,6 +369,11 @@ flowchart LR
   E_MCP -->|JSON RPC HTTPS| E_RPC
 ```
 
+This agent has two separate jobs visible in its connections: through the backend it
+reads/writes evidence and milestone review data in Cloud SQL and Cloud Storage, and
+separately, through MCP's read-only chain tools, it independently verifies that a
+contribution transaction it's being asked to evaluate actually happened on-chain.
+
 **Treasury agent** — has no access to `disbursement_execute_approved`; execution is
 invoked only from Workflows after a valid human decision, per the MCP rules.
 
@@ -355,6 +401,11 @@ flowchart LR
   T_API -->|TLS| T_SQL
   T_MCP -->|JSON RPC HTTPS| T_RPC
 ```
+
+The treasury agent's connections are deliberately read/simulate-only: it reads campaign
+and balance state from the backend and the chain, and can prepare or simulate a
+disbursement proposal — but as the callout above notes, it has no path at all to the
+execute tool, so nothing in this diagram can actually move funds.
 
 **Audit agent**
 
@@ -385,6 +436,10 @@ flowchart LR
   A_MCP -->|JSON RPC HTTPS| A_RPC
 ```
 
+The audit agent is the one agent wired to all three data sources at once — Cloud SQL,
+BigQuery, and the chain — which is what lets it cross-check the internal ledger against
+on-chain reality rather than trusting either source on its own.
+
 **Operations agent**
 
 ```mermaid
@@ -404,6 +459,10 @@ flowchart LR
   O_AGENT -->|MCP HTTPS mTLS| O_MCP
   O_MCP -->|API TLS| O_LOG
 ```
+
+The simplest agent in the system: it only ever reads observability data through MCP and
+has no connection at all to campaign, evidence, or financial data — it can summarize an
+incident but cannot see (or leak) anything sensitive in the process.
 
 ### Orchestrator delegation workflow
 
@@ -480,6 +539,12 @@ sequenceDiagram
   OPS-->>ORCH: summary (no secrets exposed)
   ORCH-->>User: operations summary
 ```
+
+In summary: the orchestrator delegates each phase of a campaign's life — drafting,
+compliance/matching, evidence review, treasury proposal, audit, and operations — to a
+different specialist, and always returns to the user rather than acting further once it
+hits a human-decision boundary. The reviewer's actual approval happens outside this
+diagram entirely, through the separate console shown earlier in this section.
 
 ## Requirements / Use Cases
 
